@@ -10,33 +10,24 @@ import (
 )
 
 var (
-	urls  []string
-	wg    sync.WaitGroup
-	mutex sync.Mutex
-	c     = make(chan string, 10) // Allocate a channel.
+	//urls  []string
+	wg sync.WaitGroup
+	c  = make(chan string, 100) // Allocate a channel.
 
 )
 
 func main() {
 
-	//c <- "http://plus.google.com/"
-
-	wg.Add(1)
-	crawl("http://plus.google.com/")
+	c <- "https://plus.google.com/+LinusTorvalds/posts"
 
 	for i := 0; i < 10; i++ {
 
-		if len(urls) > 0 {
-			wg.Add(1)
+		wg.Add(1)
 
-			urlCrawl := urls[0]
+		go crawl(<-c)
 
-			urls = urls[1:]
-
-			go crawl(urlCrawl)
-
-		}
 	}
+
 	wg.Wait()
 
 }
@@ -82,7 +73,10 @@ func crawl(url string) {
 		}
 
 		// add url to list of not yet crawled urls
-		urls = append(urls, urlFound)
+		// has to run in own goroutine, otherwise causes a deadlock
+		go func() {
+			c <- urlFound
+		}()
 		fmt.Println("Found new url: ", urlFound)
 
 	}
