@@ -127,7 +127,7 @@ func insertToCrawlURL(url string) {
 	defer db.Close()
 
 	// Prepare statement for inserting data
-	stmtIns, err := db.Prepare("INSERT INTO to_crawl VALUES(?)") // ? = placeholder
+	stmtIns, err := db.Prepare("INSERT INTO to_crawl (url) VALUES(?)") // ? = placeholder
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
