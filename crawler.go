@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -13,43 +14,75 @@ import (
 )
 
 var (
-	//urls  []string
-	//wg sync.WaitGroup
 	c = make(chan string, 100) // Allocate a channel.
-
 )
 
 func main() {
-	c <- popToCrawlURL()
+	// Connect to Database
+	db, err := sql.Open("mysql", "root:@/search")
+	if err != nil {
+		panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
+	}
+	defer db.Close()
+
+	// get first url to crawl
+	c <- popToCrawlURL(db)
 
 	for url := range c {
-		crawl(url)
-		c <- popToCrawlURL()
+		crawl(db, url)
+
+		// get next url to crawl
+		c <- popToCrawlURL(db)
 		time.Sleep(1 * time.Second) // should be a more polite value
 	}
 
 }
 
-func crawl(url string) {
+func crawl(db *sql.DB, url string) {
 
 	fmt.Println("Trying to crawl: ", url)
 
+	var s, err = getBody(url)
+	if err != nil {
+		return
+	}
+
+	// find links
+	urlsFound := findLinks(s)
+
+	for _, urlFound := range urlsFound {
+		// normalize url
+		urlFound, err := normalize(url, urlFound)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		// insert into "to_crawl" table of db
+		insertToCrawlURL(db, urlFound)
+		fmt.Println("Found new url: ", urlFound)
+	}
+}
+
+func getBody(url string) (string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Println(err)
-		return
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Println(err)
-		return
+		return "", err
 	}
+	return string(body), nil
+}
 
-	var s = string(body)
+func findLinks(s string) []string {
+	var urlsFound []string
 
-	// find links
 	for cnt := strings.Count(s, "href=\""); cnt > 0; cnt-- {
 		start := strings.Index(s, "href=\"") + 6
 		if start == -1 {
@@ -61,28 +94,12 @@ func crawl(url string) {
 			break
 		}
 		urlFound := s[:end]
-
-		// normalize url
-		urlFound, err = normalize(url, urlFound)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		insertToCrawlURL(urlFound)
-		fmt.Println("Found new url: ", urlFound)
-
+		urlsFound = append(urlsFound, urlFound)
 	}
+	return urlsFound
 }
 
-func popToCrawlURL() string {
-	// Connect to Database
-	db, err := sql.Open("mysql", "root:asd@/search")
-	if err != nil {
-		panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
-	}
-	defer db.Close()
-
+func popToCrawlURL(db *sql.DB) string {
 	// Prepare statement for reading data
 	stmtOut, err := db.Prepare("SELECT id, url FROM to_crawl LIMIT 1")
 	if err != nil {
@@ -114,9 +131,9 @@ func popToCrawlURL() string {
 	return url
 }
 
-func insertToCrawlURL(url string) {
+func insertToCrawlURL(db *sql.DB, url string) {
 	// Connect to Database
-	db, err := sql.Open("mysql", "root:asd@/search")
+	db, err := sql.Open("mysql", "root:@/search")
 	if err != nil {
 		panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
 	}
@@ -133,7 +150,8 @@ func insertToCrawlURL(url string) {
 
 	_, err = stmtIns.Exec(url) // Insert tuples (i, i^2)
 	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
+		//panic(err.Error()) // proper error handling instead of panic in your app
+		log.Print(err)
 	}
 
 }
