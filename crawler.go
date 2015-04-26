@@ -29,16 +29,30 @@ func main() {
 	defer db.Close()
 
 	// Prepare statement for reading data
-	stmtOut, err := db.Prepare("SELECT url FROM to_crawl LIMIT 1")
+	stmtOut, err := db.Prepare("SELECT id, url FROM to_crawl LIMIT 1")
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
 	defer stmtOut.Close()
 
+	var id int
 	var url string // we "scan" the result in here
 
-	// Query the square-number of 13
-	err = stmtOut.QueryRow().Scan(&url) // WHERE number = 13
+	// Query the first element found
+	err = stmtOut.QueryRow().Scan(&id, &url) // WHERE number = 13
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	// Prepare statement for deleting data
+	stmtDel, err := db.Prepare("DELETE FROM to_crawl WHERE id = ?") // ? = placeholder
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+	defer stmtDel.Close() // Close the statement when we leave main() / the program terminates,
+
+	// Delete the element
+	_, err = stmtDel.Exec(id)
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
