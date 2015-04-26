@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -20,16 +21,13 @@ var (
 )
 
 func main() {
+	c <- popToCrawlURL()
 
-	c <- popToCrawlURL() // should be inside loop
-
-	for i := 0; i < 10; i++ {
-
-		wg.Add(1)
-		go crawl(<-c)
+	for url := range c {
+		crawl(url)
+		c <- popToCrawlURL()
+		time.Sleep(1 * time.Second) // should be a more polite value
 	}
-
-	wg.Wait()
 
 }
 
