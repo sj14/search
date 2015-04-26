@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -15,8 +14,8 @@ import (
 
 var (
 	//urls  []string
-	wg sync.WaitGroup
-	c  = make(chan string, 100) // Allocate a channel.
+	//wg sync.WaitGroup
+	c = make(chan string, 100) // Allocate a channel.
 
 )
 
@@ -32,7 +31,6 @@ func main() {
 }
 
 func crawl(url string) {
-	defer wg.Done()
 
 	fmt.Println("Trying to crawl: ", url)
 
