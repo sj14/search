@@ -1,12 +1,15 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 var (
@@ -18,7 +21,30 @@ var (
 
 func main() {
 
-	c <- "https://plus.google.com/+LinusTorvalds/posts"
+	// Database
+	db, err := sql.Open("mysql", "root:asd@/search")
+	if err != nil {
+		panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
+	}
+	defer db.Close()
+
+	// Prepare statement for reading data
+	stmtOut, err := db.Prepare("SELECT url FROM to_crawl LIMIT 1")
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+	defer stmtOut.Close()
+
+	var url string // we "scan" the result in here
+
+	// Query the square-number of 13
+	err = stmtOut.QueryRow().Scan(&url) // WHERE number = 13
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	//c <- "https://plus.google.com/+LinusTorvalds/posts"
+	c <- url
 
 	for i := 0; i < 10; i++ {
 
