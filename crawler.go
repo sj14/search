@@ -21,51 +21,12 @@ var (
 
 func main() {
 
-	// Database
-	db, err := sql.Open("mysql", "root:asd@/search")
-	if err != nil {
-		panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
-	}
-	defer db.Close()
-
-	// Prepare statement for reading data
-	stmtOut, err := db.Prepare("SELECT id, url FROM to_crawl LIMIT 1")
-	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
-	}
-	defer stmtOut.Close()
-
-	var id int
-	var url string // we "scan" the result in here
-
-	// Query the first element found
-	err = stmtOut.QueryRow().Scan(&id, &url) // WHERE number = 13
-	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
-	}
-
-	// Prepare statement for deleting data
-	stmtDel, err := db.Prepare("DELETE FROM to_crawl WHERE id = ?") // ? = placeholder
-	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
-	}
-	defer stmtDel.Close() // Close the statement when we leave main() / the program terminates,
-
-	// Delete the element
-	_, err = stmtDel.Exec(id)
-	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
-	}
-
-	//c <- "https://plus.google.com/+LinusTorvalds/posts"
-	c <- url
+	c <- popToCrawlURL() // should be inside loop
 
 	for i := 0; i < 10; i++ {
 
 		wg.Add(1)
-
 		go crawl(<-c)
-
 	}
 
 	wg.Wait()
@@ -112,17 +73,72 @@ func crawl(url string) {
 			return
 		}
 
-		// add url to list of not yet crawled urls
-		// has to run in own goroutine, otherwise causes a deadlock
-		go func() {
-			c <- urlFound
-		}()
+		insertToCrawlURL(urlFound)
 		fmt.Println("Found new url: ", urlFound)
 
 	}
 }
 
-func parseLinks() {
+func popToCrawlURL() string {
+	// Connect to Database
+	db, err := sql.Open("mysql", "root:asd@/search")
+	if err != nil {
+		panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
+	}
+	defer db.Close()
+
+	// Prepare statement for reading data
+	stmtOut, err := db.Prepare("SELECT id, url FROM to_crawl LIMIT 1")
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+	defer stmtOut.Close()
+
+	var id int
+	var url string // we "scan" the result in here
+
+	// Query the first element found
+	err = stmtOut.QueryRow().Scan(&id, &url) // WHERE number = 13
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	// Prepare statement for deleting data
+	stmtDel, err := db.Prepare("DELETE FROM to_crawl WHERE id = ?") // ? = placeholder
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+	defer stmtDel.Close() // Close the statement when we leave main() / the program terminates,
+
+	// Delete the element
+	_, err = stmtDel.Exec(id)
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+	return url
+}
+
+func insertToCrawlURL(url string) {
+	// Connect to Database
+	db, err := sql.Open("mysql", "root:asd@/search")
+	if err != nil {
+		panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
+	}
+	defer db.Close()
+
+	// Prepare statement for inserting data
+	stmtIns, err := db.Prepare("INSERT INTO to_crawl VALUES(?)") // ? = placeholder
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
+
+	// Insert square numbers for 0-24 in the database
+
+	_, err = stmtIns.Exec(url) // Insert tuples (i, i^2)
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
 
 }
 
