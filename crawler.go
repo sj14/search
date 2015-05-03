@@ -9,13 +9,16 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 var (
-	c = make(chan url.URL, 100) // Allocate a channel.
+	c           = make(chan url.URL, 4) // Allocate a channel.
+	lastCrawled = make(map[string]time.Time)
+	mutex       = &sync.Mutex{}
 )
 
 func main() {
@@ -29,25 +32,47 @@ func main() {
 	// get first urlarg to crawl
 	//c <- popToCrawlURL(db)
 
-	startURL, _ := url.Parse("https://www.udacity.com/cs101x/index.html")
+	//startURL, _ := url.Parse("https://www.udacity.com/cs101x/index.html")
 
+	startURL, _ := url.Parse("http://de.wikipedia.org")
 	c <- *startURL
 
-	for urlarg := range c {
-		crawl(db, urlarg)
-
-		// get next url to crawl
+	for i := 0; i < 3; i++ {
 		c <- popToCrawlURL(db)
-		time.Sleep(1 * time.Second) // should be a more polite value
+	}
+
+	for urlarg := range c {
+		go handleCrawl(db, urlarg)
 	}
 }
 
+func handleCrawl(db *sql.DB, urlarg url.URL) {
+	mutex.Lock()
+	lastTime := lastCrawled[urlarg.Host]
+	mutex.Unlock()
+	timeSince := time.Since(lastTime)
+
+	if timeSince.Seconds() < 10 {
+		waitingTime := 10*time.Second - timeSince
+		log.Printf("Waiting %v before crawling %v again", waitingTime, urlarg.Host)
+		time.Sleep(waitingTime) // should be a more polite value
+	}
+	crawl(db, urlarg)
+	// get next url to crawl
+
+	mutex.Lock()
+	lastCrawled[urlarg.Host] = time.Now()
+	mutex.Unlock()
+
+	c <- popToCrawlURL(db)
+
+}
+
 func crawl(db *sql.DB, urlarg url.URL) {
-
 	log.Println("Trying to crawl: ", urlarg)
-
 	var s, err = getBody(urlarg)
 	if err != nil {
+		log.Println(err)
 		return
 	}
 
@@ -63,22 +88,20 @@ func crawl(db *sql.DB, urlarg url.URL) {
 			log.Println(err)
 			return
 		}
-		log.Println("Found new url in body: ", urlFound)
+		//log.Println("Found new url in body: ", urlFound)
 		// insert into "to_crawl" table of db
 		insertToCrawlURL(db, urlFound)
 	}
 }
 
 func getBody(urlarg url.URL) (string, error) {
-	// TODO: check if mime type if text/html
+	respHead, err := http.Head(urlarg.String())
+	//log.Println(respHead.Header.Get("Content-Type"))
+	contentType := respHead.Header.Get("Content-Type")
 
-	// respHead, err := http.Head(urlarg.String())
-	// respHead.Close
-	// log.Println(respHead)
-	//
-	// if !strings.Contains(respHead., "text/html") {
-	// 	return
-	// }
+	if !strings.Contains(contentType, "text/html") {
+		return "", errors.New("Not text/html content-type")
+	}
 
 	resp, err := http.Get(urlarg.String())
 	if err != nil {
@@ -113,10 +136,19 @@ func findLinks(s string) []url.URL {
 		if err != nil {
 			log.Println(err)
 		}
-
-		urlsFound = append(urlsFound, *urlParsedFound)
+		urlsFound = AppendIfMissing(urlsFound, *urlParsedFound)
 	}
 	return urlsFound
+}
+
+// From http://stackoverflow.com/a/9561388
+func AppendIfMissing(slice []url.URL, u url.URL) []url.URL {
+	for _, ele := range slice {
+		if ele == u {
+			return slice
+		}
+	}
+	return append(slice, u)
 }
 
 // Read first url from DB, save it into variable and remove from DB
@@ -178,12 +210,11 @@ func insertToCrawlURL(db *sql.DB, urlarg url.URL) {
 	}
 	defer stmtOut.Close()
 
-	//var dupURL string
-
 	// Query the first element found
 	err = stmtOut.QueryRow(urlarg.String()).Scan() // WHERE number = 13
-	if err != nil {
-		log.Printf("prevented adding already crawled url: %v", urlarg.String())
+	// no error means the url has been found in the db
+	if err == nil {
+		//log.Printf("prevented adding already crawled url: %v", urlarg.String())
 		return
 	}
 
@@ -197,8 +228,7 @@ func insertToCrawlURL(db *sql.DB, urlarg url.URL) {
 	// Insert square numbers for 0-24 in the database
 	_, err = stmtIns.Exec(urlarg.String()) // Insert tuples (i, i^2)
 	if err != nil {
-		//panic(err.Error()) // proper error handling instead of panic in your app
-		log.Println(err)
+		//log.Println(err)
 	}
 }
 
@@ -227,6 +257,16 @@ func normalize(urlargStart, urlFound url.URL) (url.URL, error) {
 	// Add host if blank
 	if urlFound.Host == "" {
 		urlFound.Host = urlargStart.Host
+	}
+
+	// Remove fragements/anchors -> '#'
+	if urlFound.Fragment != "" {
+		urlFound.Fragment = ""
+	}
+
+	// Remove queries -> '?'
+	if urlFound.RawQuery != "" {
+		urlFound.RawQuery = ""
 	}
 
 	// only add http(s) links
