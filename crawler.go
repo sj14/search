@@ -54,19 +54,19 @@ func crawl(db *sql.DB, urlarg url.URL) {
 	insertBodyToTableURL(db, urlarg, s)
 
 	// find links
-	urlargsFound := findLinks(s)
+	urlsFound := findLinks(s)
 
-	for _, urlargFound := range urlargsFound {
-		// normalize url
+	for _, urlFound := range urlsFound {
+		// normalize urlarg
 
-		urlargFound, err := normalize(urlarg, urlargFound)
+		urlFound, err := normalize(urlarg, urlFound)
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		log.Println("Found new url in body: ", urlargFound)
+		log.Println("Found new url in body: ", urlFound)
 		// insert into "to_crawl" table of db
-		insertToCrawlURL(db, urlargFound)
+		insertToCrawlURL(db, urlFound)
 	}
 }
 
@@ -87,7 +87,7 @@ func getBody(urlarg url.URL) (string, error) {
 }
 
 func findLinks(s string) []url.URL {
-	var urlargsFound []url.URL
+	var urlsFound []url.URL
 
 	for cnt := strings.Count(s, "href=\""); cnt > 0; cnt-- {
 		start := strings.Index(s, "href=\"") + 6
@@ -99,15 +99,15 @@ func findLinks(s string) []url.URL {
 		if end == -1 {
 			break
 		}
-		urlargFound := s[:end]
-		urlFound, err := url.Parse(urlargFound)
+		urlFound := s[:end]
+		urlParsedFound, err := url.Parse(urlFound)
 		if err != nil {
 			log.Println(err)
 		}
 
-		urlargsFound = append(urlargsFound, *urlFound)
+		urlsFound = append(urlsFound, *urlParsedFound)
 	}
-	return urlargsFound
+	return urlsFound
 }
 
 func popToCrawlURL(db *sql.DB) url.URL {
@@ -207,38 +207,38 @@ func insertBodyToTableURL(db *sql.DB, urlarg url.URL, body string) {
 
 }
 
-func normalize(urlargStart, urlargFound url.URL) (url.URL, error) {
+func normalize(urlargStart, urlFound url.URL) (url.URL, error) {
 	// // Add http if protocol isn't set
-	// if len(urlargFound) > 1 && urlargFound[:2] == "//" {
-	// 	urlargFound = "http:" + urlargFound
+	// if len(urlFound) > 1 && urlFound[:2] == "//" {
+	// 	urlFound = "http:" + urlFound
 	// }
 	// // Set start urlarg in front if it's not set
-	// if len(urlargFound) > 1 && urlargFound[:1] == "/" {
-	// 	urlargFound = urlargStart + urlargFound
+	// if len(urlFound) > 1 && urlFound[:1] == "/" {
+	// 	urlFound = urlargStart + urlFound
 	// }
 	// // only add http(s) links
-	// if len(urlargFound) > 7 && urlargFound[0:7] != "http://" {
-	// 	if len(urlargFound) > 8 && urlargFound[0:8] != "https://" {
+	// if len(urlFound) > 7 && urlFound[0:7] != "http://" {
+	// 	if len(urlFound) > 8 && urlFound[0:8] != "https://" {
 	// 		return "", errors.New("Protocol should be http(s)")
 	// 	}
 	// }
 
 	// Add protocol if blank
-	if urlargFound.Scheme == "" {
-		urlargFound.Scheme = urlargStart.Scheme
+	if urlFound.Scheme == "" {
+		urlFound.Scheme = urlargStart.Scheme
 	}
 
 	// Add host if blank
-	if urlargFound.Host == "" {
-		urlargFound.Host = urlargStart.Host
+	if urlFound.Host == "" {
+		urlFound.Host = urlargStart.Host
 	}
 
 	// only add http(s) links
-	if urlargFound.Scheme != "http" {
-		if urlargFound.Scheme != "https" {
-			return urlargFound, errors.New("Protocol should be http(s)")
+	if urlFound.Scheme != "http" {
+		if urlFound.Scheme != "https" {
+			return urlFound, errors.New("Protocol should be http(s)")
 		}
 	}
 
-	return urlargFound, nil
+	return urlFound, nil
 }
