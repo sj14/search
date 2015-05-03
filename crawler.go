@@ -57,8 +57,7 @@ func crawl(db *sql.DB, urlarg url.URL) {
 	urlsFound := findLinks(s)
 
 	for _, urlFound := range urlsFound {
-		// normalize urlarg
-
+		// normalize url
 		urlFound, err := normalize(urlarg, urlFound)
 		if err != nil {
 			log.Println(err)
@@ -71,6 +70,16 @@ func crawl(db *sql.DB, urlarg url.URL) {
 }
 
 func getBody(urlarg url.URL) (string, error) {
+	// TODO: check if mime type if text/html
+
+	// respHead, err := http.Head(urlarg.String())
+	// respHead.Close
+	// log.Println(respHead)
+	//
+	// if !strings.Contains(respHead., "text/html") {
+	// 	return
+	// }
+
 	resp, err := http.Get(urlarg.String())
 	if err != nil {
 		log.Println(err)
@@ -110,10 +119,15 @@ func findLinks(s string) []url.URL {
 	return urlsFound
 }
 
+// Read first url from DB, save it into variable and remove from DB
 func popToCrawlURL(db *sql.DB) url.URL {
+	tx, err := db.Begin()
+	if err != nil {
+		log.Println(err)
+	}
 
-	// Prepare statement for reading data
-	stmtOut, err := db.Prepare("SELECT id, url FROM to_crawl LIMIT 1")
+	// Prepare statement for first url
+	stmtOut, err := tx.Prepare("SELECT id, url FROM to_crawl LIMIT 1")
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
@@ -136,7 +150,7 @@ func popToCrawlURL(db *sql.DB) url.URL {
 	}
 
 	// Prepare statement for deleting data
-	stmtDel, err := db.Prepare("DELETE FROM to_crawl WHERE id = ?") // ? = placeholder
+	stmtDel, err := tx.Prepare("DELETE FROM to_crawl WHERE id = ?") // ? = placeholder
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
@@ -147,11 +161,16 @@ func popToCrawlURL(db *sql.DB) url.URL {
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
+	err = tx.Commit()
+	if err != nil {
+		tx.Rollback()
+	}
 	return *parsedURL
 }
 
+// check if url has already been crawled (if it is in table 'urls'!)
+// and if not, add to to_crawl table. The db will check if it is already in to_crawl
 func insertToCrawlURL(db *sql.DB, urlarg url.URL) {
-
 	// Prepare statement for reading data
 	stmtOut, err := db.Prepare("SELECT url FROM urls WHERE url = ? LIMIT 1")
 	if err != nil {
@@ -168,11 +187,6 @@ func insertToCrawlURL(db *sql.DB, urlarg url.URL) {
 		return
 	}
 
-	// if dupURL != "" {
-	// 	fmt.Println("prevented adding already crawled url")
-	// 	return
-	// }
-
 	// Prepare statement for inserting data
 	stmtIns, err := db.Prepare("INSERT INTO to_crawl (url) VALUES(?)") // ? = placeholder
 	if err != nil {
@@ -186,9 +200,9 @@ func insertToCrawlURL(db *sql.DB, urlarg url.URL) {
 		//panic(err.Error()) // proper error handling instead of panic in your app
 		log.Println(err)
 	}
-
 }
 
+// insert text/body from the website to db table 'urls'
 func insertBodyToTableURL(db *sql.DB, urlarg url.URL, body string) {
 	// Prepare statement for inserting data
 	stmtIns, err := db.Prepare("INSERT INTO urls (url, text) VALUES(?, ?)") // ? = placeholder
@@ -197,32 +211,14 @@ func insertBodyToTableURL(db *sql.DB, urlarg url.URL, body string) {
 	}
 	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
 
-	// Insert square numbers for 0-24 in the database
-
 	_, err = stmtIns.Exec(urlarg.String(), body) // Insert tuples (i, i^2)
 	if err != nil {
 		//panic(err.Error()) // proper error handling instead of panic in your app
 		log.Println(err)
 	}
-
 }
 
 func normalize(urlargStart, urlFound url.URL) (url.URL, error) {
-	// // Add http if protocol isn't set
-	// if len(urlFound) > 1 && urlFound[:2] == "//" {
-	// 	urlFound = "http:" + urlFound
-	// }
-	// // Set start urlarg in front if it's not set
-	// if len(urlFound) > 1 && urlFound[:1] == "/" {
-	// 	urlFound = urlargStart + urlFound
-	// }
-	// // only add http(s) links
-	// if len(urlFound) > 7 && urlFound[0:7] != "http://" {
-	// 	if len(urlFound) > 8 && urlFound[0:8] != "https://" {
-	// 		return "", errors.New("Protocol should be http(s)")
-	// 	}
-	// }
-
 	// Add protocol if blank
 	if urlFound.Scheme == "" {
 		urlFound.Scheme = urlargStart.Scheme
@@ -239,6 +235,5 @@ func normalize(urlargStart, urlFound url.URL) (url.URL, error) {
 			return urlFound, errors.New("Protocol should be http(s)")
 		}
 	}
-
 	return urlFound, nil
 }
