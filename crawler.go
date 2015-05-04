@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +15,7 @@ import (
 )
 
 var (
-	c           = make(chan url.URL, 4) // Allocate a channel.
+	c           = make(chan url.URL, 1000) // Allocate a channel.
 	lastCrawled = make(map[string]time.Time)
 	mutex       = &sync.Mutex{}
 )
@@ -34,37 +33,46 @@ func main() {
 
 	//startURL, _ := url.Parse("https://www.udacity.com/cs101x/index.html")
 
-	startURL, _ := url.Parse("http://de.wikipedia.org")
+	startURL, _ := url.Parse("https://plus.google.com/+android")
 	c <- *startURL
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 999; i++ {
 		c <- popToCrawlURL(db)
 	}
 
 	for urlarg := range c {
+		time.Sleep(10 * time.Millisecond)
 		go handleCrawl(db, urlarg)
 	}
 }
 
 func handleCrawl(db *sql.DB, urlarg url.URL) {
-	mutex.Lock()
-	lastTime := lastCrawled[urlarg.Host]
-	mutex.Unlock()
-	timeSince := time.Since(lastTime)
-
-	if timeSince.Seconds() < 10 {
-		waitingTime := 10*time.Second - timeSince
-		log.Printf("Waiting %v before crawling %v again", waitingTime, urlarg.Host)
-		time.Sleep(waitingTime) // should be a more polite value
-	}
-	crawl(db, urlarg)
-	// get next url to crawl
+	checkDelay(urlarg)
 
 	mutex.Lock()
 	lastCrawled[urlarg.Host] = time.Now()
 	mutex.Unlock()
 
+	crawl(db, urlarg)
+	// get next url to crawl
+
 	c <- popToCrawlURL(db)
+
+}
+
+func checkDelay(urlarg url.URL) {
+	mutex.Lock()
+	lastTime := lastCrawled[urlarg.Host]
+	mutex.Unlock()
+	timeSince := time.Since(lastTime)
+
+	if timeSince.Seconds() < 60 {
+		waitingTime := 60*time.Second - timeSince
+		//log.Printf("Waiting %v before crawling %v again", waitingTime, urlarg.Host)
+		time.Sleep(waitingTime) // should be a more polite value
+
+		checkDelay(urlarg)
+	}
 
 }
 
@@ -96,6 +104,9 @@ func crawl(db *sql.DB, urlarg url.URL) {
 
 func getBody(urlarg url.URL) (string, error) {
 	respHead, err := http.Head(urlarg.String())
+	if err != nil {
+		return "", err
+	}
 	//log.Println(respHead.Header.Get("Content-Type"))
 	contentType := respHead.Header.Get("Content-Type")
 
@@ -135,14 +146,15 @@ func findLinks(s string) []url.URL {
 		urlParsedFound, err := url.Parse(urlFound)
 		if err != nil {
 			log.Println(err)
+			continue
 		}
-		urlsFound = AppendIfMissing(urlsFound, *urlParsedFound)
+		urlsFound = appendIfMissing(urlsFound, *urlParsedFound)
 	}
 	return urlsFound
 }
 
 // From http://stackoverflow.com/a/9561388
-func AppendIfMissing(slice []url.URL, u url.URL) []url.URL {
+func appendIfMissing(slice []url.URL, u url.URL) []url.URL {
 	for _, ele := range slice {
 		if ele == u {
 			return slice
@@ -173,7 +185,7 @@ func popToCrawlURL(db *sql.DB) url.URL {
 	if err != nil {
 		//panic(err.Error()) // proper error handling instead of panic in your app
 		log.Println("No more URLs to crawl. Exiting.")
-		os.Exit(0)
+		//os.Exit(0)
 	}
 
 	parsedURL, err := url.Parse(urlarg)
