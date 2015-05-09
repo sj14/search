@@ -34,11 +34,11 @@ func main() {
 
 	//startURL, _ := url.Parse("https://www.udacity.com/cs101x/index.html")
 
-	startURL, _ := url.Parse("https://plus.google.com/+android")
+	startURL, _ := url.Parse("http://golang.com/")
 	c <- *startURL
 
 	for i := 0; i < 24; i++ {
-		c <- popToCrawlURL(db)
+		c <- getCrawlURL(db)
 	}
 
 	for urlArg := range c {
@@ -57,8 +57,7 @@ func handleCrawl(db *sql.DB, urlArg url.URL) {
 	crawl(db, urlArg)
 	// get next url to crawl
 
-	c <- popToCrawlURL(db)
-
+	c <- getCrawlURL(db)
 }
 
 func checkDelay(urlArg url.URL) {
@@ -137,12 +136,12 @@ func findLinks(s string) []url.URL {
 	for cnt := strings.Count(s, "href=\""); cnt > 0; cnt-- {
 		start := strings.Index(s, "href=\"") + 6
 		if start == -1 {
-			break
+			continue
 		}
 		s = s[start:]
 		end := strings.Index(s, "\"")
 		if end == -1 {
-			break
+			continue
 		}
 		urlFound := s[:end]
 		urlParsedFound, err := url.Parse(urlFound)
@@ -150,32 +149,16 @@ func findLinks(s string) []url.URL {
 			log.Println(err)
 			continue
 		}
-		urlsFound = appendURLIfMissing(urlsFound, *urlParsedFound)
+		// Filter for interesting links (mostly html)
+		if strings.HasSuffix(urlParsedFound.Path, "/") || strings.HasSuffix(urlParsedFound.Path, ".html") {
+			urlsFound = appendURLIfMissing(urlsFound, *urlParsedFound)
+		}
 	}
 	return urlsFound
 }
 
-// From http://stackoverflow.com/a/9561388
-func appendURLIfMissing(slice []url.URL, u url.URL) []url.URL {
-	for _, ele := range slice {
-		if ele == u {
-			return slice
-		}
-	}
-	return append(slice, u)
-}
-
-func appendStringIfMissing(slice []string, s string) []string {
-	for _, ele := range slice {
-		if ele == s {
-			return slice
-		}
-	}
-	return append(slice, s)
-}
-
 // Read first url from DB, save it into variable and remove from DB
-func popToCrawlURL(db *sql.DB) url.URL {
+func getCrawlURL(db *sql.DB) url.URL {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Println(err)
@@ -226,20 +209,23 @@ func popToCrawlURL(db *sql.DB) url.URL {
 // check if url has already been crawled (if it is in table 'urls'!)
 // and if not, add to to_crawl table. The db will check if it is already in to_crawl
 func insertToCrawlURL(db *sql.DB, urlArg url.URL) {
-	// Prepare statement for reading data
-	stmtOut, err := db.Prepare("SELECT url FROM crawl WHERE url = ? LIMIT 1")
-	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
-	}
-	defer stmtOut.Close()
 
-	// Query the first element found
-	err = stmtOut.QueryRow(urlArg.String()).Scan() // WHERE number = 13
-	// no error means the url has been found in the db
-	if err == nil {
-		//log.Printf("prevented adding already crawled url: %v", urlArg.String())
-		return
-	}
+	/*
+		// Prepare statement for reading data
+		stmtOut, err := db.Prepare("SELECT url FROM crawl WHERE url = ? LIMIT 1")
+		if err != nil {
+			panic(err.Error()) // proper error handling instead of panic in your app
+		}
+		defer stmtOut.Close()
+
+		// Query the first element found
+		err = stmtOut.QueryRow(urlArg.String()).Scan() // WHERE number = 13
+		// no error means the url has been found in the db
+		if err == nil {
+			log.Printf("prevented adding already crawled url: %v", urlArg.String())
+			return
+		}
+	*/
 
 	// Prepare statement for inserting data
 	stmtIns, err := db.Prepare("INSERT INTO crawl (url) VALUES(?)") // ? = placeholder
@@ -249,8 +235,9 @@ func insertToCrawlURL(db *sql.DB, urlArg url.URL) {
 	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
 
 	// Insert square numbers for 0-24 in the database
-	_, err = stmtIns.Exec(urlArg.String(), time.Now()) // Insert tuples (i, i^2)
+	_, err = stmtIns.Exec(urlArg.String()) // Insert tuples (i, i^2)
 	if err != nil {
+		// Propably duplicate entry
 		//log.Println(err)
 	}
 }
@@ -290,15 +277,22 @@ func inserKeywordsToDB(db *sql.DB, urlArg url.URL, body string) {
 
 	for scanner.Scan() {
 
-		ok := uniqueWords[scanner.Text()]
+		// Ignores all words < 3 chars
+		// Ignores a lot html keywords and of course valid ones...
+		if len(scanner.Text()) >= 3 && !strings.HasPrefix(scanner.Text(), "<") {
 
-		if !ok {
-			_, err = stmtIns.Exec(scanner.Text(), urlArg.String()) // Insert tuples (i, i^2)
-			if err != nil {
-				//panic(err.Error()) // proper error handling instead of panic in your app
-				//log.Println(err)
+			ok := uniqueWords[scanner.Text()]
+
+			if !ok {
+				uniqueWords[scanner.Text()] = true
+
+				_, err = stmtIns.Exec(scanner.Text(), urlArg.String()) // Insert tuples (i, i^2)
+				if err != nil {
+					// Propably duplicate entry
+					//panic(err.Error()) // proper error handling instead of panic in your app
+					//log.Println(err)
+				}
 			}
-			uniqueWords[scanner.Text()] = true
 		}
 	}
 }
@@ -331,4 +325,23 @@ func normalize(urlArgStart, urlFound url.URL) (url.URL, error) {
 		}
 	}
 	return urlFound, nil
+}
+
+// From http://stackoverflow.com/a/9561388
+func appendURLIfMissing(slice []url.URL, u url.URL) []url.URL {
+	for _, ele := range slice {
+		if ele == u {
+			return slice
+		}
+	}
+	return append(slice, u)
+}
+
+func appendStringIfMissing(slice []string, s string) []string {
+	for _, ele := range slice {
+		if ele == s {
+			return slice
+		}
+	}
+	return append(slice, s)
 }

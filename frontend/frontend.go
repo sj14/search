@@ -74,7 +74,9 @@ func handlerQuery(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Fprintf(w, "Results for %v <br> %v", r.URL.Query().Get("search_input"), url)
+		//fmt.Fprintf(w, "Results for %v <br> %v", r.URL.Query().Get("search_input"), url)
+		fmt.Fprintf(w, "%v <br>", url)
+
 	}
 	err = rows.Err()
 	if err != nil {
