@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"errors"
 	"io/ioutil"
@@ -15,7 +16,7 @@ import (
 )
 
 var (
-	c           = make(chan url.URL, 1000) // Allocate a channel.
+	c           = make(chan url.URL, 10) // Allocate channel(s).
 	lastCrawled = make(map[string]time.Time)
 	mutex       = &sync.Mutex{}
 )
@@ -28,7 +29,7 @@ func main() {
 	}
 	defer db.Close()
 
-	// get first urlarg to crawl
+	// get first urlArg to crawl
 	//c <- popToCrawlURL(db)
 
 	//startURL, _ := url.Parse("https://www.udacity.com/cs101x/index.html")
@@ -36,62 +37,63 @@ func main() {
 	startURL, _ := url.Parse("https://plus.google.com/+android")
 	c <- *startURL
 
-	for i := 0; i < 999; i++ {
+	for i := 0; i < 9; i++ {
 		c <- popToCrawlURL(db)
 	}
 
-	for urlarg := range c {
+	for urlArg := range c {
 		time.Sleep(10 * time.Millisecond)
-		go handleCrawl(db, urlarg)
+		go handleCrawl(db, urlArg)
 	}
 }
 
-func handleCrawl(db *sql.DB, urlarg url.URL) {
-	checkDelay(urlarg)
+func handleCrawl(db *sql.DB, urlArg url.URL) {
+	checkDelay(urlArg)
 
 	mutex.Lock()
-	lastCrawled[urlarg.Host] = time.Now()
+	lastCrawled[urlArg.Host] = time.Now()
 	mutex.Unlock()
 
-	crawl(db, urlarg)
+	crawl(db, urlArg)
 	// get next url to crawl
 
 	c <- popToCrawlURL(db)
 
 }
 
-func checkDelay(urlarg url.URL) {
+func checkDelay(urlArg url.URL) {
 	mutex.Lock()
-	lastTime := lastCrawled[urlarg.Host]
+	lastTime := lastCrawled[urlArg.Host]
 	mutex.Unlock()
 	timeSince := time.Since(lastTime)
 
-	if timeSince.Seconds() < 60 {
-		waitingTime := 60*time.Second - timeSince
-		//log.Printf("Waiting %v before crawling %v again", waitingTime, urlarg.Host)
+	if timeSince.Seconds() < 3 {
+		waitingTime := 3*time.Second - timeSince
+		//log.Printf("Waiting %v before crawling %v again", waitingTime, urlArg.Host)
 		time.Sleep(waitingTime) // should be a more polite value
 
-		checkDelay(urlarg)
+		checkDelay(urlArg)
 	}
 
 }
 
-func crawl(db *sql.DB, urlarg url.URL) {
-	log.Println("Trying to crawl: ", urlarg)
-	var s, err = getBody(urlarg)
+func crawl(db *sql.DB, urlArg url.URL) {
+	log.Println("Trying to crawl: ", urlArg)
+	var s, err = getBody(urlArg)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	insertBodyToTableURL(db, urlarg, s)
+	insertURLToDB(db, urlArg)
+	inserKeywordsToDB(db, urlArg, s)
 
 	// find links
 	urlsFound := findLinks(s)
 
 	for _, urlFound := range urlsFound {
 		// normalize url
-		urlFound, err := normalize(urlarg, urlFound)
+		urlFound, err := normalize(urlArg, urlFound)
 		if err != nil {
 			log.Println(err)
 			return
@@ -102,8 +104,8 @@ func crawl(db *sql.DB, urlarg url.URL) {
 	}
 }
 
-func getBody(urlarg url.URL) (string, error) {
-	respHead, err := http.Head(urlarg.String())
+func getBody(urlArg url.URL) (string, error) {
+	respHead, err := http.Head(urlArg.String())
 	if err != nil {
 		return "", err
 	}
@@ -114,7 +116,7 @@ func getBody(urlarg url.URL) (string, error) {
 		return "", errors.New("Not text/html content-type")
 	}
 
-	resp, err := http.Get(urlarg.String())
+	resp, err := http.Get(urlArg.String())
 	if err != nil {
 		log.Println(err)
 		return "", err
@@ -178,17 +180,17 @@ func popToCrawlURL(db *sql.DB) url.URL {
 	defer stmtOut.Close()
 
 	var id int
-	var urlarg string // we "scan" the result in here
+	var urlArg string // we "scan" the result in here
 
 	// Query the first element found
-	err = stmtOut.QueryRow().Scan(&id, &urlarg) // WHERE number = 13
+	err = stmtOut.QueryRow().Scan(&id, &urlArg) // WHERE number = 13
 	if err != nil {
 		//panic(err.Error()) // proper error handling instead of panic in your app
 		log.Println("No more URLs to crawl. Exiting.")
 		//os.Exit(0)
 	}
 
-	parsedURL, err := url.Parse(urlarg)
+	parsedURL, err := url.Parse(urlArg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -214,7 +216,7 @@ func popToCrawlURL(db *sql.DB) url.URL {
 
 // check if url has already been crawled (if it is in table 'urls'!)
 // and if not, add to to_crawl table. The db will check if it is already in to_crawl
-func insertToCrawlURL(db *sql.DB, urlarg url.URL) {
+func insertToCrawlURL(db *sql.DB, urlArg url.URL) {
 	// Prepare statement for reading data
 	stmtOut, err := db.Prepare("SELECT url FROM urls WHERE url = ? LIMIT 1")
 	if err != nil {
@@ -223,10 +225,10 @@ func insertToCrawlURL(db *sql.DB, urlarg url.URL) {
 	defer stmtOut.Close()
 
 	// Query the first element found
-	err = stmtOut.QueryRow(urlarg.String()).Scan() // WHERE number = 13
+	err = stmtOut.QueryRow(urlArg.String()).Scan() // WHERE number = 13
 	// no error means the url has been found in the db
 	if err == nil {
-		//log.Printf("prevented adding already crawled url: %v", urlarg.String())
+		//log.Printf("prevented adding already crawled url: %v", urlArg.String())
 		return
 	}
 
@@ -238,37 +240,58 @@ func insertToCrawlURL(db *sql.DB, urlarg url.URL) {
 	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
 
 	// Insert square numbers for 0-24 in the database
-	_, err = stmtIns.Exec(urlarg.String()) // Insert tuples (i, i^2)
+	_, err = stmtIns.Exec(urlArg.String()) // Insert tuples (i, i^2)
 	if err != nil {
 		//log.Println(err)
 	}
 }
 
 // insert text/body from the website to db table 'urls'
-func insertBodyToTableURL(db *sql.DB, urlarg url.URL, body string) {
+func insertURLToDB(db *sql.DB, urlArg url.URL) {
 	// Prepare statement for inserting data
-	stmtIns, err := db.Prepare("INSERT INTO urls (url, text) VALUES(?, ?)") // ? = placeholder
+	stmtIns, err := db.Prepare("INSERT INTO urls (url) VALUES(?)") // ? = placeholder
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
 	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
 
-	_, err = stmtIns.Exec(urlarg.String(), body) // Insert tuples (i, i^2)
+	_, err = stmtIns.Exec(urlArg.String()) // Insert tuples (i, i^2)
 	if err != nil {
 		//panic(err.Error()) // proper error handling instead of panic in your app
 		log.Println(err)
 	}
 }
 
-func normalize(urlargStart, urlFound url.URL) (url.URL, error) {
+func inserKeywordsToDB(db *sql.DB, urlArg url.URL, body string) {
+	// Prepare statement for inserting data
+	stmtIns, err := db.Prepare("INSERT INTO keyword_url (fk_keyword, fk_url) VALUES(?, ?)") // ? = placeholder
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
+
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	// Set the split function for the scanning operation.
+	scanner.Split(bufio.ScanWords)
+
+	for scanner.Scan() {
+		_, err = stmtIns.Exec(scanner.Text(), urlArg.String()) // Insert tuples (i, i^2)
+		if err != nil {
+			//panic(err.Error()) // proper error handling instead of panic in your app
+			//log.Println(err)
+		}
+	}
+}
+
+func normalize(urlArgStart, urlFound url.URL) (url.URL, error) {
 	// Add protocol if blank
 	if urlFound.Scheme == "" {
-		urlFound.Scheme = urlargStart.Scheme
+		urlFound.Scheme = urlArgStart.Scheme
 	}
 
 	// Add host if blank
 	if urlFound.Host == "" {
-		urlFound.Host = urlargStart.Host
+		urlFound.Host = urlArgStart.Host
 	}
 
 	// Remove fragements/anchors -> '#'
