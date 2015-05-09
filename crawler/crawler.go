@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	c           = make(chan url.URL, 10) // Allocate channel(s).
+	c           = make(chan url.URL, 25) // Allocate channel(s).
 	lastCrawled = make(map[string]time.Time)
 	mutex       = &sync.Mutex{}
 )
@@ -37,7 +37,7 @@ func main() {
 	startURL, _ := url.Parse("https://plus.google.com/+android")
 	c <- *startURL
 
-	for i := 0; i < 9; i++ {
+	for i := 0; i < 24; i++ {
 		c <- popToCrawlURL(db)
 	}
 
@@ -67,8 +67,8 @@ func checkDelay(urlArg url.URL) {
 	mutex.Unlock()
 	timeSince := time.Since(lastTime)
 
-	if timeSince.Seconds() < 3 {
-		waitingTime := 3*time.Second - timeSince
+	if timeSince.Seconds() < 1 {
+		waitingTime := 1*time.Second - timeSince
 		//log.Printf("Waiting %v before crawling %v again", waitingTime, urlArg.Host)
 		time.Sleep(waitingTime) // should be a more polite value
 
@@ -85,7 +85,7 @@ func crawl(db *sql.DB, urlArg url.URL) {
 		return
 	}
 
-	insertURLToDB(db, urlArg)
+	//insertURLToDB(db, urlArg)
 	inserKeywordsToDB(db, urlArg, s)
 
 	// find links
@@ -150,19 +150,28 @@ func findLinks(s string) []url.URL {
 			log.Println(err)
 			continue
 		}
-		urlsFound = appendIfMissing(urlsFound, *urlParsedFound)
+		urlsFound = appendURLIfMissing(urlsFound, *urlParsedFound)
 	}
 	return urlsFound
 }
 
 // From http://stackoverflow.com/a/9561388
-func appendIfMissing(slice []url.URL, u url.URL) []url.URL {
+func appendURLIfMissing(slice []url.URL, u url.URL) []url.URL {
 	for _, ele := range slice {
 		if ele == u {
 			return slice
 		}
 	}
 	return append(slice, u)
+}
+
+func appendStringIfMissing(slice []string, s string) []string {
+	for _, ele := range slice {
+		if ele == s {
+			return slice
+		}
+	}
+	return append(slice, s)
 }
 
 // Read first url from DB, save it into variable and remove from DB
@@ -173,17 +182,16 @@ func popToCrawlURL(db *sql.DB) url.URL {
 	}
 
 	// Prepare statement for first url
-	stmtOut, err := tx.Prepare("SELECT id, url FROM to_crawl LIMIT 1")
+	stmtOut, err := tx.Prepare("SELECT url FROM crawl  WHERE timestamp IS NULL LIMIT 1")
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
 	defer stmtOut.Close()
 
-	var id int
 	var urlArg string // we "scan" the result in here
 
 	// Query the first element found
-	err = stmtOut.QueryRow().Scan(&id, &urlArg) // WHERE number = 13
+	err = stmtOut.QueryRow().Scan(&urlArg) // WHERE number = 13
 	if err != nil {
 		//panic(err.Error()) // proper error handling instead of panic in your app
 		log.Println("No more URLs to crawl. Exiting.")
@@ -195,18 +203,19 @@ func popToCrawlURL(db *sql.DB) url.URL {
 		log.Fatal(err)
 	}
 
-	// Prepare statement for deleting data
-	stmtDel, err := tx.Prepare("DELETE FROM to_crawl WHERE id = ?") // ? = placeholder
+	// Prepare statement for inserting data
+	stmtIns, err := tx.Prepare("UPDATE crawl SET timestamp = ? WHERE url = ?") // ? = placeholder
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
-	defer stmtDel.Close() // Close the statement when we leave main() / the program terminates,
+	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
 
-	// Delete the element
-	_, err = stmtDel.Exec(id)
+	// Insert square numbers for 0-24 in the database
+	_, err = stmtIns.Exec(time.Now(), urlArg) // Insert tuples (i, i^2)
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
+
 	err = tx.Commit()
 	if err != nil {
 		tx.Rollback()
@@ -218,7 +227,7 @@ func popToCrawlURL(db *sql.DB) url.URL {
 // and if not, add to to_crawl table. The db will check if it is already in to_crawl
 func insertToCrawlURL(db *sql.DB, urlArg url.URL) {
 	// Prepare statement for reading data
-	stmtOut, err := db.Prepare("SELECT url FROM urls WHERE url = ? LIMIT 1")
+	stmtOut, err := db.Prepare("SELECT url FROM crawl WHERE url = ? LIMIT 1")
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
@@ -233,20 +242,21 @@ func insertToCrawlURL(db *sql.DB, urlArg url.URL) {
 	}
 
 	// Prepare statement for inserting data
-	stmtIns, err := db.Prepare("INSERT INTO to_crawl (url) VALUES(?)") // ? = placeholder
+	stmtIns, err := db.Prepare("INSERT INTO crawl (url) VALUES(?)") // ? = placeholder
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
 	}
 	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
 
 	// Insert square numbers for 0-24 in the database
-	_, err = stmtIns.Exec(urlArg.String()) // Insert tuples (i, i^2)
+	_, err = stmtIns.Exec(urlArg.String(), time.Now()) // Insert tuples (i, i^2)
 	if err != nil {
 		//log.Println(err)
 	}
 }
 
 // insert text/body from the website to db table 'urls'
+/*
 func insertURLToDB(db *sql.DB, urlArg url.URL) {
 	// Prepare statement for inserting data
 	stmtIns, err := db.Prepare("INSERT INTO urls (url) VALUES(?)") // ? = placeholder
@@ -261,8 +271,12 @@ func insertURLToDB(db *sql.DB, urlArg url.URL) {
 		log.Println(err)
 	}
 }
+*/
 
 func inserKeywordsToDB(db *sql.DB, urlArg url.URL, body string) {
+	// save already inserted keywords to reduce db load
+	uniqueWords := make(map[string]bool)
+
 	// Prepare statement for inserting data
 	stmtIns, err := db.Prepare("INSERT INTO keyword_url (fk_keyword, fk_url) VALUES(?, ?)") // ? = placeholder
 	if err != nil {
@@ -275,10 +289,16 @@ func inserKeywordsToDB(db *sql.DB, urlArg url.URL, body string) {
 	scanner.Split(bufio.ScanWords)
 
 	for scanner.Scan() {
-		_, err = stmtIns.Exec(scanner.Text(), urlArg.String()) // Insert tuples (i, i^2)
-		if err != nil {
-			//panic(err.Error()) // proper error handling instead of panic in your app
-			//log.Println(err)
+
+		ok := uniqueWords[scanner.Text()]
+
+		if !ok {
+			_, err = stmtIns.Exec(scanner.Text(), urlArg.String()) // Insert tuples (i, i^2)
+			if err != nil {
+				//panic(err.Error()) // proper error handling instead of panic in your app
+				//log.Println(err)
+			}
+			uniqueWords[scanner.Text()] = true
 		}
 	}
 }

@@ -85,7 +85,6 @@ func handlerQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-
 	http.HandleFunc("/", handlerIndex)
 	http.HandleFunc("/query", handlerQuery)
 	http.ListenAndServe(":8080", nil)
