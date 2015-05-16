@@ -127,7 +127,10 @@ func getBody(urlArg url.URL) (string, error) {
 		log.Println(err)
 		return "", err
 	}
-	return string(body), nil
+	// full body to low letters
+	s := string(body)
+	s = strings.ToLower(s)
+	return s, nil
 }
 
 func findLinks(s string) []url.URL {
@@ -149,8 +152,8 @@ func findLinks(s string) []url.URL {
 			log.Println(err)
 			continue
 		}
-		// Filter for interesting links (mostly html)
-		if strings.HasSuffix(urlParsedFound.Path, "/") || strings.HasSuffix(urlParsedFound.Path, ".html") {
+		// Filter for interesting links (mostly html, php etc.)
+		if strings.HasSuffix(urlParsedFound.Path, "/") || strings.HasSuffix(urlParsedFound.Path, ".html") || strings.HasSuffix(urlParsedFound.Path, ".php") {
 			urlsFound = appendURLIfMissing(urlsFound, *urlParsedFound)
 		}
 	}
@@ -206,26 +209,7 @@ func getCrawlURL(db *sql.DB) url.URL {
 	return *parsedURL
 }
 
-// check if url has already been crawled (if it is in table 'urls'!)
-// and if not, add to to_crawl table. The db will check if it is already in to_crawl
 func insertToCrawlURL(db *sql.DB, urlArg url.URL) {
-
-	/*
-		// Prepare statement for reading data
-		stmtOut, err := db.Prepare("SELECT url FROM crawl WHERE url = ? LIMIT 1")
-		if err != nil {
-			panic(err.Error()) // proper error handling instead of panic in your app
-		}
-		defer stmtOut.Close()
-
-		// Query the first element found
-		err = stmtOut.QueryRow(urlArg.String()).Scan() // WHERE number = 13
-		// no error means the url has been found in the db
-		if err == nil {
-			log.Printf("prevented adding already crawled url: %v", urlArg.String())
-			return
-		}
-	*/
 
 	// Prepare statement for inserting data
 	stmtIns, err := db.Prepare("INSERT INTO crawl (url) VALUES(?)") // ? = placeholder
@@ -241,24 +225,6 @@ func insertToCrawlURL(db *sql.DB, urlArg url.URL) {
 		//log.Println(err)
 	}
 }
-
-// insert text/body from the website to db table 'urls'
-/*
-func insertURLToDB(db *sql.DB, urlArg url.URL) {
-	// Prepare statement for inserting data
-	stmtIns, err := db.Prepare("INSERT INTO urls (url) VALUES(?)") // ? = placeholder
-	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
-	}
-	defer stmtIns.Close() // Close the statement when we leave main() / the program terminates
-
-	_, err = stmtIns.Exec(urlArg.String()) // Insert tuples (i, i^2)
-	if err != nil {
-		//panic(err.Error()) // proper error handling instead of panic in your app
-		log.Println(err)
-	}
-}
-*/
 
 func inserKeywordsToDB(db *sql.DB, urlArg url.URL, body string) {
 	// save already inserted keywords to reduce db load

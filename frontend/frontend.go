@@ -37,11 +37,13 @@ func handlerQuery(w http.ResponseWriter, r *http.Request) {
 
 	prepareSQL := "SELECT fk_url FROM keyword_url as url1 WHERE fk_keyword = ?"
 	keywordsInterface := make([]interface{}, len(keywords))
-	keywordsInterface[0] = keywords[0]
+	keywordsInterface[0] = strings.ToLower(keywords[0])
 
 	if len(keywords) > 1 {
 		for val, keyword := range keywords {
-			keywordsInterface[val] = keyword
+
+			keywordsInterface[val] = strings.ToLower(keyword)
+
 			if val == 0 {
 				continue
 			} else {
